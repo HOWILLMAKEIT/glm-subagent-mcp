@@ -27,7 +27,7 @@ glm-subagent-mcp 让你在普通的 prompt 里直接告诉 Claude Code：把这�
 
 ### 📢 动态
 
-- **2026-10-07** 🎉 初始版本：单工具 server，附模拟端点的端到端测试。尚未用真实 Z.ai 端点验证。
+- **2026-10-07** 🎉 初始版本：单工具 server，附模拟端点的端到端测试。已用国内 Coding Plan 端点（open.bigmodel.cn）和 glm-5.3 实测通过一次；国际站 z.ai 端点未测试。
 
 ## 🛠️ 工作原理
 

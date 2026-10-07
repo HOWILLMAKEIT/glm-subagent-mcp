@@ -41,7 +41,7 @@ The token saving comes from where the work happens. Reading files, writing code,
 
 ### 📢 News
 
-- **2026-10-07** 🎉 Initial version: single-tool server, mock end-to-end test. Not yet verified against the real Z.ai endpoint.
+- **2026-10-07** 🎉 Initial version: single-tool server, mock end-to-end test. Verified once against the mainland-China Coding Plan endpoint (open.bigmodel.cn) with glm-5.3; the international z.ai endpoint is untested.
 
 ## 🛠️ How It Works
 
