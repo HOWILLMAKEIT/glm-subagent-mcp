@@ -1,0 +1,37 @@
+{
+  "name": "glm-subagent-mcp",
+  "version": "0.1.0",
+  "description": "Minimal MCP server: one tool, glm_agent, that runs a GLM Coding Plan model as a coding sub-agent inside a working directory.",
+  "type": "module",
+  "bin": {
+    "glm-subagent-mcp": "src/index.js"
+  },
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node test/run.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.8"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HOWILLMAKEIT/glm-subagent-mcp.git"
+  },
+  "homepage": "https://github.com/HOWILLMAKEIT/glm-subagent-mcp#readme",
+  "keywords": [
+    "mcp",
+    "claude-code",
+    "glm",
+    "zhipu",
+    "z.ai",
+    "sub-agent",
+    "coding-plan"
+  ],
+  "author": "HOWILLMAKEIT"
+}
