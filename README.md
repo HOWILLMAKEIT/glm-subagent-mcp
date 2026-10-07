@@ -24,13 +24,17 @@
 
 ## 💡 What It Does
 
-The server adds one tool, `glm_agent`, to Claude Code. Name it in a prompt and Claude hands the task to a GLM model. GLM reads and edits files and runs commands in your project folder, then returns a summary, the changed files, and its token usage. The work is billed to your GLM Coding Plan, and Claude's context only receives the summary.
+A stdio MCP server that exposes one tool, `glm_agent(task, workdir, context?, model?)`. Each call runs an agent loop against GLM's Anthropic-compatible `/v1/messages` endpoint. The model emits `tool_use` blocks for `read_file`, `write_file`, `edit_file`, `list_dir` and `run_bash`. The server executes them inside `workdir` and feeds back `tool_result` until the model stops. The caller receives the final text, the changed file paths and token usage.
+
+The intermediate tool traffic never enters the calling model's context, and the tokens are billed to the Coding Plan. GLM sees only `task` and `context`, not the Claude conversation.
+
+Name the tool in a prompt to delegate:
 
 ```text
 Use glm_agent to add unit tests for utils.py in this repo, then summarize what changed.
 ```
 
-GLM works well on clear, self-contained tasks: scaffolding, tests, translation, docs, small refactors. Tasks that depend on the whole conversation should stay on Claude, since GLM cannot see it.
+Fits self-contained tasks with a clear spec: scaffolding, tests, translation, docs, local refactors.
 
 ## 🚀 Quick Start
 
@@ -75,9 +79,12 @@ flowchart LR
     C -->|"short report"| B
 ```
 
-1. Claude calls `glm_agent` with a task and the project folder's absolute path.
-2. `glm_agent` asks GLM what to do. GLM answers with a step such as "read this file" or "run this command". `glm_agent` carries out the step in your folder and tells GLM the result. This repeats until GLM says it is done, or after 30 rounds.
-3. Claude receives GLM's summary, the list of changed files, and the token counts.
+1. Claude Code calls `glm_agent` over MCP stdio. While it runs, the server sends progress notifications (iteration, output tokens, tok/s). Cancelling the call aborts the in-flight request.
+2. The server POSTs to `{GLM_BASE_URL}/v1/messages` with `stream: true` and the five tool definitions. On `tool_use` it runs the tool locally and appends the `tool_result`. The loop ends when the model answers without a tool call, at `GLM_AGENT_MAX_ITERS` (30), or on cancel.
+3. Requests retry with exponential backoff on 429, 5xx and concurrency errors (up to 4 retries). A stream with no bytes for `GLM_STALL_TIMEOUT_MS` is aborted and retried. One request is in flight at a time.
+4. The result is a header (model, status, iterations, directory), token counts, changed files and GLM's final text, truncated at 50,000 characters.
+
+`changed files` is recorded from `write_file` and `edit_file` only. Files modified through `run_bash` are not tracked.
 
 ### Tool options
 
@@ -112,6 +119,7 @@ Z.ai warns that using the wrong address means your Coding Plan quota is not used
 | `GLM_MAX_TOKENS`            | `32768`  | Output limit per round (this project's choice, not an official cap) |
 | `GLM_MAX_CONCURRENT`        | `1`      | Requests sent to GLM at the same time                               |
 | `GLM_STALL_TIMEOUT_MS`      | `120000` | How long to wait in silence before retrying                         |
+| `GLM_MAX_RETRIES`           | `4`      | Retries on 429, 5xx and concurrency errors                          |
 
 </details>
 

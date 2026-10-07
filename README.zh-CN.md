@@ -24,13 +24,17 @@
 
 ## 💡 它做什么
 
-本 MCP 给 Claude Code 增加一个工具 `glm_agent`。在 prompt 里点名它，Claude 就会把任务交给 GLM 模型。GLM 在你的项目目录里读写文件、执行命令，最后返回总结、改动的文件和 token 用量。这些工作记在你的 GLM Coding Plan 上，Claude 的上下文里只有那段总结。
+一个 stdio 方式的 MCP server，只暴露一个工具 `glm_agent(task, workdir, context?, model?)`。每次调用会对 GLM 的 Anthropic 兼容端点 `/v1/messages` 跑一个 agent 循环：模型输出 `tool_use`，调用 `read_file`、`write_file`、`edit_file`、`list_dir`、`run_bash`；server 在 `workdir` 内执行并回传 `tool_result`，直到模型停止。调用方拿到最终文本、改动的文件路径和 token 用量。
+
+中间的工具读写不会进入调用方模型的上下文，token 记在 Coding Plan 上。GLM 只能看到 `task` 和 `context`，看不到 Claude 的对话。
+
+在 prompt 里点名这个工具即可委派：
 
 ```text
 用 glm_agent 给本仓库的 utils.py 补单元测试，完成后总结改了什么。
 ```
 
-适合交给 GLM 的是说得清、能独立完成的任务：搭脚手架、写测试、翻译、写文档、小范围重构。依赖整段对话的任务留给 Claude，因为 GLM 看不到对话。
+适合需求明确、能独立完成的任务：搭脚手架、写测试、翻译、写文档、局部重构。
 
 ## 🚀 快速开始
 
@@ -75,9 +79,12 @@ flowchart LR
     C -->|"简短总结"| B
 ```
 
-1. Claude 带着任务和项目目录的绝对路径调用 `glm_agent`。
-2. `glm_agent` 问 GLM 下一步做什么。GLM 回答一个动作，比如“读这个文件”或“跑这条命令”。`glm_agent` 在你的目录里执行，再把结果告诉 GLM。这样来回，直到 GLM 说完成，或者达到 30 轮。
-3. Claude 收到 GLM 的总结、改动的文件列表和 token 用量。
+1. Claude Code 通过 MCP stdio 调用 `glm_agent`。运行期间 server 会发送进度通知（轮次、输出 token、tok/s）；取消调用会中止正在进行的请求。
+2. server 向 `{GLM_BASE_URL}/v1/messages` 发起 `stream: true` 的请求，附带五个工具的定义。收到 `tool_use` 就在本机执行，把 `tool_result` 追加进消息。模型不再调用工具、达到 `GLM_AGENT_MAX_ITERS`（30）或被取消时，循环结束。
+3. 遇到 429、5xx 和并发超限会指数退避重试（最多 4 次）。流式响应连续 `GLM_STALL_TIMEOUT_MS` 没有数据会中止并重试。同一时刻只有一个请求在途。
+4. 返回内容依次是：头部（模型、状态、轮次、目录）、token 数、改动的文件、GLM 的最终文本，超过 50,000 字符会截断。
+
+`changed files` 只记录通过 `write_file` 和 `edit_file` 改动的文件，经由 `run_bash` 修改的文件不会被统计。
 
 ### 工具参数
 
@@ -112,6 +119,7 @@ Z.ai 提示：地址用错，Coding Plan 的额度就用不上（[文档](https:
 | `GLM_MAX_TOKENS`            | `32768`  | 每轮输出上限（本项目取值，不是官方上限）       |
 | `GLM_MAX_CONCURRENT`        | `1`      | 同时发给 GLM 的请求数                          |
 | `GLM_STALL_TIMEOUT_MS`      | `120000` | 连续多久没有响应就重试                         |
+| `GLM_MAX_RETRIES`           | `4`      | 遇到 429、5xx、并发超限时的重试次数            |
 
 </details>
 
