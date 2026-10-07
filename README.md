@@ -12,7 +12,7 @@
 [![Tools](https://img.shields.io/badge/Tools-1-0ea5e9.svg)](#-how-it-works)
 [![GLM](https://img.shields.io/badge/GLM-Coding%20Plan-111827.svg)](https://docs.z.ai/devpack/overview)
 
-**Tell Claude Code to hand a task to GLM. GLM does the work, so the tokens come out of your GLM plan instead of Claude's.**
+**GLM as a Claude Code sub-agent: name it in a prompt to delegate, and the tokens are billed to GLM.**
 
 **English** | [简体中文](README.zh-CN.md)
 
@@ -35,9 +35,6 @@ Use glm_agent to add unit tests for utils.py in this repo, then summarize what c
 Claude passes the task and the project folder to GLM. When GLM finishes, Claude gets back a few lines: what GLM changed, which files, and how many tokens it used. The reading, writing and test runs in between are billed to your GLM Coding Plan.
 
 Good tasks for GLM are clear and self-contained: scaffolding, tests, translation, docs, small refactors. Tasks that depend on the whole conversation are better kept on Claude, because GLM cannot see it.
-
-The tool is packaged as an MCP server, which is a plug-in format that gives Claude Code extra tools.
-
 ## 🚀 Quick Start
 
 You need Claude Code, Node.js 18 or newer, and an API key from a GLM Coding Plan.
