@@ -24,17 +24,21 @@
 
 ## 💡 What It Does
 
-A stdio MCP server that exposes one tool, `glm_agent(task, workdir, context?, model?)`. Each call runs an agent loop against GLM's Anthropic-compatible `/v1/messages` endpoint. The model emits `tool_use` blocks for `read_file`, `write_file`, `edit_file`, `list_dir` and `run_bash`. The server executes them inside `workdir` and feeds back `tool_result` until the model stops. The caller receives the final text, the changed file paths and token usage.
+Sub-agents in Claude Code are configured with Claude models, so everything a sub-agent reads or runs is billed as Claude tokens. glm-subagent-mcp provides the same delegation pattern backed by a GLM model: one MCP tool, `glm_agent`, that carries a bounded coding task to completion on GLM and returns only the outcome.
 
-The intermediate tool traffic never enters the calling model's context, and the tokens are billed to the Coding Plan. GLM sees only `task` and `context`, not the Claude conversation.
+Each call is a *delegated run* with three parts:
 
-Name the tool in a prompt to delegate:
+- **Input.** `task`, `workdir`, and optionally `context` and `model`. GLM sees these and nothing else from the Claude conversation.
+- **Execution.** GLM works in `workdir` through five actions (read, write and edit a file, list a directory, run a shell command), driven in a loop against its Anthropic-compatible `/v1/messages` endpoint.
+- **Output.** The final text, the changed file paths, and token usage. The intermediate tool traffic stays on the GLM side, so it is billed to the Coding Plan and kept out of Claude's context.
+
+Name the tool in a prompt to start a run:
 
 ```text
 Use glm_agent to add unit tests for utils.py in this repo, then summarize what changed.
 ```
 
-Fits self-contained tasks with a clear spec: scaffolding, tests, translation, docs, local refactors.
+Delegated runs fit tasks with a clear specification that do not depend on earlier conversation: scaffolding, tests, translation, docs, local refactors.
 
 ## 🚀 Quick Start
 
@@ -79,12 +83,23 @@ flowchart LR
     C -->|"short report"| B
 ```
 
-1. Claude Code calls `glm_agent` over MCP stdio. While it runs, the server sends progress notifications (iteration, output tokens, tok/s). Cancelling the call aborts the in-flight request.
-2. The server POSTs to `{GLM_BASE_URL}/v1/messages` with `stream: true` and the five tool definitions. On `tool_use` it runs the tool locally and appends the `tool_result`. The loop ends when the model answers without a tool call, at `GLM_AGENT_MAX_ITERS` (30), or on cancel.
-3. Requests retry with exponential backoff on 429, 5xx and concurrency errors (up to 4 retries). A stream with no bytes for `GLM_STALL_TIMEOUT_MS` is aborted and retried. One request is in flight at a time.
-4. The result is a header (model, status, iterations, directory), token counts, changed files and GLM's final text, truncated at 50,000 characters.
+A delegated run proceeds in three steps:
 
-`changed files` is recorded from `write_file` and `edit_file` only. Files modified through `run_bash` are not tracked.
+1. Claude Code calls `glm_agent` over MCP stdio.
+2. The server POSTs to `{GLM_BASE_URL}/v1/messages` with `stream: true` and the five tool definitions. Each `tool_use` block is executed locally and its `tool_result` is appended to the messages. The loop ends when the model replies without a tool call, at `GLM_AGENT_MAX_ITERS` (30), or on cancel.
+3. The server returns a header (model, status, iterations, directory), token counts, the changed files and GLM's final text, truncated at 50,000 characters.
+
+Long runs and unreliable networks are handled by these mechanisms:
+
+| Concern                | Mechanism                                                                                   |
+| :--------------------- | :------------------------------------------------------------------------------------------ |
+| Long-running calls     | Progress notifications (iteration, output tokens, tok/s); cancelling aborts the in-flight request |
+| Transient API errors   | Exponential backoff on 429, 5xx and concurrency errors, up to `GLM_MAX_RETRIES` (4)         |
+| Stalled streams        | A stream silent for `GLM_STALL_TIMEOUT_MS` is aborted and retried                           |
+| Concurrency limits     | One request in flight at a time (`GLM_MAX_CONCURRENT`)                                      |
+| Filesystem scope       | File actions are confined to `workdir` (see Safety)                                         |
+
+`changed files` is recorded from the write and edit actions only. Files modified through the shell action are not tracked.
 
 ### Tool options
 
@@ -125,14 +140,14 @@ Z.ai warns that using the wrong address means your Coding Plan quota is not used
 
 ## 🔒 Safety
 
-- File actions only work inside the folder you pass as `workdir`. Paths outside it are refused, including paths that reach outside through symbolic links.
-- Shell commands start in `workdir` but are **not** restricted. GLM can run any command, so use this on folders you are fine letting it change.
-- Your code is sent to Z.ai's servers. Keep secrets and regulated code on your own machine.
-- Z.ai's FAQ says the Coding Plan is limited to officially supported tools and products ([FAQ](https://docs.z.ai/devpack/faq.md), accessed 2026-10-07). Whether a self-made plug-in like this one is allowed is for you to confirm.
+- **File actions** are confined to `workdir`. Paths outside it are refused, including paths that reach outside through symbolic links.
+- **Shell actions** start in `workdir` and run with your user's privileges, so their reach is that of your account. Use delegated runs on folders you are comfortable letting GLM modify.
+- **Data flow.** Task text, file contents and command output are sent to Z.ai's servers. Keep secrets and regulated code on your machine.
+- **Plan terms.** Z.ai's FAQ limits the Coding Plan to officially supported tools and products ([FAQ](https://docs.z.ai/devpack/faq.md), accessed 2026-10-07). Whether a self-built MCP server falls inside that scope is for you to confirm.
 
 ## 📢 Status
 
-Tested end to end against a fake GLM server, and once against the mainland-China Coding Plan address (open.bigmodel.cn) with `glm-5.3`. The international z.ai address has not been tested.
+Verified: the full loop against a mock server (`npm test`), and one live run on the mainland-China Coding Plan address (open.bigmodel.cn) with `glm-5.3`. Not yet tested: the international address (api.z.ai).
 
 ## 🙏 Acknowledgements
 

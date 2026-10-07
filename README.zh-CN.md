@@ -24,17 +24,21 @@
 
 ## 💡 它做什么
 
-一个 stdio 方式的 MCP server，只暴露一个工具 `glm_agent(task, workdir, context?, model?)`。每次调用会对 GLM 的 Anthropic 兼容端点 `/v1/messages` 跑一个 agent 循环：模型输出 `tool_use`，调用 `read_file`、`write_file`、`edit_file`、`list_dir`、`run_bash`；server 在 `workdir` 内执行并回传 `tool_result`，直到模型停止。调用方拿到最终文本、改动的文件路径和 token 用量。
+Claude Code 的 sub-agent 配置的是 Claude 模型，所以 sub-agent 读到的、跑出的一切都按 Claude token 计费。本项目用 GLM 模型提供同样的委派方式：一个 MCP 工具 `glm_agent`，把范围明确的编码任务在 GLM 上做完，只把结果交回来。
 
-中间的工具读写不会进入调用方模型的上下文，token 记在 Coding Plan 上。GLM 只能看到 `task` 和 `context`，看不到 Claude 的对话。
+每次调用是一次*委派运行*，由三部分组成：
 
-在 prompt 里点名这个工具即可委派：
+- **输入。** `task`、`workdir`，以及可选的 `context` 和 `model`。GLM 只能看到这些，看不到 Claude 的对话。
+- **执行。** GLM 在 `workdir` 内通过五个动作工作（读、写、改文件，列目录，执行 shell 命令），以循环方式驱动它的 Anthropic 兼容端点 `/v1/messages`。
+- **输出。** 最终文本、改动的文件路径和 token 用量。中间的工具交互留在 GLM 一侧，因此记在 Coding Plan 上，也不占用 Claude 的上下文。
+
+在 prompt 里点名这个工具即可发起一次运行：
 
 ```text
 用 glm_agent 给本仓库的 utils.py 补单元测试，完成后总结改了什么。
 ```
 
-适合需求明确、能独立完成的任务：搭脚手架、写测试、翻译、写文档、局部重构。
+委派运行适合需求明确、不依赖之前对话的任务：搭脚手架、写测试、翻译、写文档、局部重构。
 
 ## 🚀 快速开始
 
@@ -79,12 +83,23 @@ flowchart LR
     C -->|"简短总结"| B
 ```
 
-1. Claude Code 通过 MCP stdio 调用 `glm_agent`。运行期间 server 会发送进度通知（轮次、输出 token、tok/s）；取消调用会中止正在进行的请求。
-2. server 向 `{GLM_BASE_URL}/v1/messages` 发起 `stream: true` 的请求，附带五个工具的定义。收到 `tool_use` 就在本机执行，把 `tool_result` 追加进消息。模型不再调用工具、达到 `GLM_AGENT_MAX_ITERS`（30）或被取消时，循环结束。
-3. 遇到 429、5xx 和并发超限会指数退避重试（最多 4 次）。流式响应连续 `GLM_STALL_TIMEOUT_MS` 没有数据会中止并重试。同一时刻只有一个请求在途。
-4. 返回内容依次是：头部（模型、状态、轮次、目录）、token 数、改动的文件、GLM 的最终文本，超过 50,000 字符会截断。
+一次委派运行分三步：
 
-`changed files` 只记录通过 `write_file` 和 `edit_file` 改动的文件，经由 `run_bash` 修改的文件不会被统计。
+1. Claude Code 通过 MCP stdio 调用 `glm_agent`。
+2. server 向 `{GLM_BASE_URL}/v1/messages` 发起 `stream: true` 的请求，附带五个工具的定义。每个 `tool_use` 在本机执行，其 `tool_result` 追加进消息。模型不再调用工具、达到 `GLM_AGENT_MAX_ITERS`（30）或被取消时，循环结束。
+3. server 返回头部（模型、状态、轮次、目录）、token 数、改动的文件和 GLM 的最终文本，超过 50,000 字符会截断。
+
+长时间运行和不稳定的网络由下面几项机制处理：
+
+| 问题           | 机制                                                                              |
+| :------------- | :-------------------------------------------------------------------------------- |
+| 调用耗时长     | 推送进度通知（轮次、输出 token、tok/s）；取消调用会中止在途请求                   |
+| 接口偶发错误   | 遇到 429、5xx 和并发超限时指数退避，最多 `GLM_MAX_RETRIES`（4）次                 |
+| 流式响应卡住   | 连续 `GLM_STALL_TIMEOUT_MS` 没有数据就中止并重试                                  |
+| 并发限制       | 同一时刻只有一个请求在途（`GLM_MAX_CONCURRENT`）                                  |
+| 文件系统范围   | 文件动作限制在 `workdir` 内（见“安全”）                                           |
+
+`changed files` 只来自写文件和改文件动作，通过 shell 动作修改的文件不会被统计。
 
 ### 工具参数
 
@@ -125,14 +140,14 @@ Z.ai 提示：地址用错，Coding Plan 的额度就用不上（[文档](https:
 
 ## 🔒 安全
 
-- 文件操作只在你传入的 `workdir` 内生效。目录之外的路径会被拒绝，通过符号链接绕出去的也一样。
-- shell 命令从 `workdir` 启动，但**不受**限制。GLM 可以执行任何命令，所以只对你放心让它改动的目录使用。
-- 你的代码会发到 Z.ai 的服务器。机密或受监管的代码留在本机。
-- Z.ai 的 FAQ 写明 Coding Plan 仅限在官方支持的工具和产品内使用（[FAQ](https://docs.z.ai/devpack/faq.md)，访问于 2026-10-07）。像这样自己写的插件是否在允许范围内，需要你自行确认。
+- **文件动作**限制在 `workdir` 内。目录之外的路径会被拒绝，通过符号链接绕出去的也一样。
+- **shell 动作**从 `workdir` 启动，权限等同于你当前的用户账号，所以影响范围就是你账号能触及的范围。请只对你放心让 GLM 修改的目录发起委派运行。
+- **数据流向。** 任务文本、文件内容和命令输出会发送到 Z.ai 的服务器。机密或受监管的代码留在本机。
+- **套餐条款。** Z.ai 的 FAQ 把 Coding Plan 限定在官方支持的工具和产品内使用（[FAQ](https://docs.z.ai/devpack/faq.md)，访问于 2026-10-07）。自建 MCP server 是否在该范围内，需要你自行确认。
 
 ## 📢 状态
 
-已用假的 GLM 服务器完整测试过，也用国内 Coding Plan 地址（open.bigmodel.cn）和 `glm-5.3` 实测通过一次。国际站 z.ai 地址没有测试过。
+已验证：对模拟服务器跑通完整循环（`npm test`），以及在国内 Coding Plan 地址（open.bigmodel.cn）上用 `glm-5.3` 实测一次。尚未测试：国际站地址（api.z.ai）。
 
 ## 🙏 致谢
 
