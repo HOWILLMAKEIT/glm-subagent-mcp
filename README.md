@@ -142,12 +142,6 @@ Z.ai warns that using the wrong address means your Coding Plan quota is not used
 
 - **File actions** are confined to `workdir`. Paths outside it are refused, including paths that reach outside through symbolic links.
 - **Shell actions** start in `workdir` and run with your user's privileges, so their reach is that of your account. Use delegated runs on folders you are comfortable letting GLM modify.
-- **Data flow.** Task text, file contents and command output are sent to Z.ai's servers. Keep secrets and regulated code on your machine.
-- **Plan terms.** Z.ai's FAQ limits the Coding Plan to officially supported tools and products ([FAQ](https://docs.z.ai/devpack/faq.md), accessed 2026-10-07). Whether a self-built MCP server falls inside that scope is for you to confirm.
-
-## 📢 Status
-
-Verified: the full loop against a mock server (`npm test`), and one live run on the mainland-China Coding Plan address (open.bigmodel.cn) with `glm-5.3`. Not yet tested: the international address (api.z.ai).
 
 ## 🙏 Acknowledgements
 
