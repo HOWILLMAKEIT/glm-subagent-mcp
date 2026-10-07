@@ -12,7 +12,7 @@
 [![Tools](https://img.shields.io/badge/Tools-1-0ea5e9.svg)](#-how-it-works)
 [![GLM](https://img.shields.io/badge/GLM-Coding%20Plan-111827.svg)](https://docs.z.ai/devpack/overview)
 
-**GLM as a Claude Code sub-agent: name it in a prompt to delegate, and the tokens are billed to GLM.**
+**With this MCP server, Claude Code can call a GLM model as a sub-agent.**
 
 **English** | [简体中文](README.zh-CN.md)
 
@@ -24,17 +24,14 @@
 
 ## 💡 What It Does
 
-Every file Claude Code reads and every command it runs uses Claude tokens. This project adds one tool, `glm_agent`, to Claude Code. When you ask Claude to use it, Claude sends the task to a GLM model. GLM reads the files, edits them, runs the commands, and sends back a short report. Claude only ever sees that report.
-
-For example, you type:
+The server adds one tool, `glm_agent`, to Claude Code. Name it in a prompt and Claude hands the task to a GLM model. GLM reads and edits files and runs commands in your project folder, then returns a summary, the changed files, and its token usage. The work is billed to your GLM Coding Plan, and Claude's context only receives the summary.
 
 ```text
 Use glm_agent to add unit tests for utils.py in this repo, then summarize what changed.
 ```
 
-Claude passes the task and the project folder to GLM. When GLM finishes, Claude gets back a few lines: what GLM changed, which files, and how many tokens it used. The reading, writing and test runs in between are billed to your GLM Coding Plan.
+GLM works well on clear, self-contained tasks: scaffolding, tests, translation, docs, small refactors. Tasks that depend on the whole conversation should stay on Claude, since GLM cannot see it.
 
-Good tasks for GLM are clear and self-contained: scaffolding, tests, translation, docs, small refactors. Tasks that depend on the whole conversation are better kept on Claude, because GLM cannot see it.
 ## 🚀 Quick Start
 
 You need Claude Code, Node.js 18 or newer, and an API key from a GLM Coding Plan.

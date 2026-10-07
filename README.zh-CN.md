@@ -12,7 +12,7 @@
 [![Tools](https://img.shields.io/badge/Tools-1-0ea5e9.svg)](#-工作原理)
 [![GLM](https://img.shields.io/badge/GLM-Coding%20Plan-111827.svg)](https://docs.z.ai/devpack/overview)
 
-**把 GLM 接成 Claude Code 的 sub-agent：在 prompt 里点名即可委派，token 记在 GLM 账上。**
+**利用本 MCP，可以在 Claude Code 中调用 GLM 的模型作为 subagent。**
 
 [English](README.md) | **简体中文**
 
@@ -24,17 +24,14 @@
 
 ## 💡 它做什么
 
-Claude Code 读的每个文件、跑的每条命令都会消耗 Claude 的 token。这个项目给 Claude Code 加了一个工具 `glm_agent`。你让 Claude 用它时，Claude 会把任务交给 GLM 模型。GLM 自己读文件、改文件、跑命令，最后回报一小段总结。Claude 只看得到这段总结。
-
-比如你输入：
+本 MCP 给 Claude Code 增加一个工具 `glm_agent`。在 prompt 里点名它，Claude 就会把任务交给 GLM 模型。GLM 在你的项目目录里读写文件、执行命令，最后返回总结、改动的文件和 token 用量。这些工作记在你的 GLM Coding Plan 上，Claude 的上下文里只有那段总结。
 
 ```text
 用 glm_agent 给本仓库的 utils.py 补单元测试，完成后总结改了什么。
 ```
 
-Claude 把任务和项目目录交给 GLM。GLM 做完后，Claude 收到几行内容：改了什么、涉及哪些文件、用了多少 token。中间的读文件、写代码、跑测试，都记在你的 GLM Coding Plan 上。
+适合交给 GLM 的是说得清、能独立完成的任务：搭脚手架、写测试、翻译、写文档、小范围重构。依赖整段对话的任务留给 Claude，因为 GLM 看不到对话。
 
-适合交给 GLM 的任务说得清、能独立完成：搭脚手架、写测试、翻译、写文档、小范围重构。依赖整段对话的任务更适合留给 Claude，因为 GLM 看不到你们的对话。
 ## 🚀 快速开始
 
 需要 Claude Code、Node.js 18 或更高版本，以及一个 GLM Coding Plan 的 API key。
