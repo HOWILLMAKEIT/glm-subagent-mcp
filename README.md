@@ -8,90 +8,41 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node 18+](https://img.shields.io/badge/Node-18%2B-339933.svg?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
-[![MCP](https://img.shields.io/badge/MCP-stdio-6366f1.svg)](https://modelcontextprotocol.io/)
-[![Tools](https://img.shields.io/badge/Tools-1-0ea5e9.svg)](#%EF%B8%8F-how-it-works)
+[![MCP](https://img.shields.io/badge/MCP-plugin-6366f1.svg)](https://modelcontextprotocol.io/)
+[![Tools](https://img.shields.io/badge/Tools-1-0ea5e9.svg)](#-how-it-works)
 [![GLM](https://img.shields.io/badge/GLM-Coding%20Plan-111827.svg)](https://docs.z.ai/devpack/overview)
 
-**Call GLM as a Claude Code sub-agent from a plain prompt, and spend GLM tokens instead of Claude tokens.**
+**Tell Claude Code to hand a task to GLM. GLM does the work, so the tokens come out of your GLM plan instead of Claude's.**
 
 **English** | [简体中文](README.zh-CN.md)
 
-[How It Works](#%EF%B8%8F-how-it-works) | [Quick Start](#-quick-start) | [Configuration](#%EF%B8%8F-configuration) | [Safety](#-safety-boundaries) | [Acknowledgements](#-acknowledgements)
+[What It Does](#-what-it-does) | [Quick Start](#-quick-start) | [How It Works](#-how-it-works) | [Settings](#-settings) | [Safety](#-safety) | [Acknowledgements](#-acknowledgements)
 
 </div>
 
 ---
 
-glm-subagent-mcp lets you tell Claude Code, in an ordinary prompt, to hand a task to GLM. It is an MCP server with one tool, `glm_agent(task, workdir)`. GLM runs its own read / write / edit / list / bash loop inside `workdir`, then returns a summary, the changed files, and token usage.
+## 💡 What It Does
 
-The token saving comes from where the work happens. Reading files, writing code, running commands and retrying all happen on the GLM side and use your GLM Coding Plan quota. Claude's context receives only the short summary, so a long task costs Claude a few hundred tokens instead of the whole working transcript.
+Every file Claude Code reads and every command it runs uses Claude tokens. This project adds one tool, `glm_agent`, to Claude Code. When you ask Claude to use it, Claude sends the task to a GLM model. GLM reads the files, edits them, runs the commands, and sends back a short report. Claude only ever sees that report.
 
-## 👀 Overview
-
-### ✨ Highlights
-
-<table>
-<tr>
-<td align="center" width="25%">💬<br/><b>Prompt-triggered</b><br/><sub>Say "use glm_agent" and Claude delegates the task</sub></td>
-<td align="center" width="25%">💸<br/><b>Work stays on GLM</b><br/><sub>File reads, edits and command output never enter Claude's context</sub></td>
-<td align="center" width="25%">🔌<br/><b>Coding Plan endpoint</b><br/><sub>Anthropic Messages API, <code>glm-5.3</code> by default</sub></td>
-<td align="center" width="25%">🔒<br/><b>Path sandbox</b><br/><sub>File tools stay inside <code>workdir</code>, symlinks included</sub></td>
-</tr>
-</table>
-
-### 📢 News
-
-- **2026-10-07** 🎉 Initial version: single-tool server, mock end-to-end test. Verified once against the mainland-China Coding Plan endpoint (open.bigmodel.cn) with glm-5.3; the international z.ai endpoint is untested.
-
-## 🛠️ How It Works
-
-```mermaid
-flowchart TD
-    U["You: 'use glm_agent to ...'"] --> A["Claude Code<br/>reads glm_agent description"]
-    A -->|"glm_agent(task, workdir)"| B["glm-subagent-mcp<br/>(stdio MCP server)"]
-    B -->|"POST /v1/messages (SSE)"| C["GLM Coding Plan endpoint"]
-    C -->|"tool_use"| D["Local tool loop<br/>read / write / edit / list / bash"]
-    D -->|"tool_result"| C
-    D -->|"files in workdir"| E[("your repo")]
-    C -->|"final text"| B
-    B -->|"summary + changed files + tokens"| A
-
-    style A fill:#e0f2fe,stroke:#0284c7,stroke-width:2px
-    style B fill:#fef3c7,stroke:#f59e0b,stroke-width:2px
-    style C fill:#f5f3ff,stroke:#8b5cf6,stroke-width:2px
-```
-
-1. You ask Claude to use `glm_agent` for a task. Claude calls it with a complete task description and an absolute `workdir`.
-2. The server sends the task to GLM. Each `tool_use` reply is executed locally and sent back, until GLM stops or the iteration cap (default 30) is reached.
-3. Claude receives the summary, the list of changed files, and input/output token counts.
-
-### 🧰 The tool
-
-| Argument  | Required | Meaning                                                        |
-| :-------- | :------: | :------------------------------------------------------------- |
-| `task`    |    ✅    | Self-contained task. GLM does not see the Claude conversation. |
-| `workdir` |    ✅    | Absolute path of the directory GLM works in.                   |
-| `context` |          | Extra background or constraints.                               |
-| `model`   |          | `glm-5.3` (default) or `glm-5.3-flash`.                        |
-
-GLM's own tools: `read_file`, `write_file`, `edit_file`, `list_dir`, `run_bash`.
-
-## 📁 Project Structure
+For example, you type:
 
 ```text
-glm-subagent-mcp/
-├── src/
-│   ├── index.js        # MCP server, registers glm_agent
-│   ├── glmAgent.js     # tool loop + workdir sandbox
-│   └── glmClient.js    # streaming client, retry, stall timeout, cancel
-├── test/run.mjs        # end-to-end test against a mock SSE server
-├── package.json
-└── LICENSE
+Use glm_agent to add unit tests for utils.py in this repo, then summarize what changed.
 ```
+
+Claude passes the task and the project folder to GLM. When GLM finishes, Claude gets back a few lines: what GLM changed, which files, and how many tokens it used. The reading, writing and test runs in between are billed to your GLM Coding Plan.
+
+Good tasks for GLM are clear and self-contained: scaffolding, tests, translation, docs, small refactors. Tasks that depend on the whole conversation are better kept on Claude, because GLM cannot see it.
+
+The tool is packaged as an MCP server, which is a plug-in format that gives Claude Code extra tools.
 
 ## 🚀 Quick Start
 
-### 1. Install
+You need Claude Code, Node.js 18 or newer, and an API key from a GLM Coding Plan.
+
+**1. Download and install**
 
 ```bash
 git clone https://github.com/HOWILLMAKEIT/glm-subagent-mcp.git
@@ -99,57 +50,87 @@ cd glm-subagent-mcp
 npm install
 ```
 
-### 2. Register with Claude Code
+**2. Add it to Claude Code**
 
 ```bash
-claude mcp add glm -s user -e GLM_API_KEY=YOUR_CODING_PLAN_KEY -- node /absolute/path/to/glm-subagent-mcp/src/index.js
+claude mcp add glm -s user -e GLM_API_KEY=YOUR_KEY -- node /absolute/path/to/glm-subagent-mcp/src/index.js
 ```
 
-### 3. Use it in a prompt
+If your Coding Plan account is on the mainland-China site (bigmodel.cn), add one more setting. The default address is the international one:
 
-Restart Claude Code, then name the tool in your request:
-
-```text
-Use glm_agent to add unit tests for utils.py in this repo, then summarize what changed.
+```bash
+claude mcp add glm -s user -e GLM_API_KEY=YOUR_KEY -e GLM_BASE_URL=https://open.bigmodel.cn/api/anthropic -- node /absolute/path/to/glm-subagent-mcp/src/index.js
 ```
+
+**3. Restart Claude Code and ask for it by name**
 
 ```text
 Delegate the README translation to GLM with glm_agent. Work in /path/to/project.
 ```
 
-Tasks that suit GLM are well specified and self-contained: scaffolding, tests, translation, docs, local refactors. For tasks that need the whole conversation as context, keep them on Claude.
+To check the setup without a key, run `npm test`. It runs the whole flow against a fake GLM server on your machine.
 
-### 4. Test (no key needed)
+## 🔍 How It Works
 
-```bash
-npm test
+```mermaid
+flowchart LR
+    A["You"] -->|"use glm_agent to ..."| B["Claude Code"]
+    B -->|"task + project folder"| C["glm_agent"]
+    C <-->|"what next? / here is the result"| D["GLM model"]
+    C <-->|"read, edit, run commands"| E[("your project folder")]
+    C -->|"short report"| B
 ```
 
-The test starts a mock Anthropic-style SSE server and checks the full loop: file write, path escape, symlink escape, bash.
+1. Claude calls `glm_agent` with a task and the project folder's absolute path.
+2. `glm_agent` asks GLM what to do. GLM answers with a step such as "read this file" or "run this command". `glm_agent` carries out the step in your folder and tells GLM the result. This repeats until GLM says it is done, or after 30 rounds.
+3. Claude receives GLM's summary, the list of changed files, and the token counts.
 
-## ⚙️ Configuration
+### Tool options
 
-Pass these with `-e` when registering.
+| Option    | Required | Meaning                                                               |
+| :-------- | :------: | :-------------------------------------------------------------------- |
+| `task`    |    ✅    | What GLM should do. Write it in full, since GLM cannot see your chat. |
+| `workdir` |    ✅    | Absolute path of the folder GLM works in.                             |
+| `context` |          | Extra background or constraints.                                      |
+| `model`   |          | `glm-5.3` (default) or `glm-5.3-flash`.                               |
 
-| Variable                    | Default                          | Meaning                                                                                                   |
-| :-------------------------- | :------------------------------- | :-------------------------------------------------------------------------------------------------------- |
-| `GLM_API_KEY`               | none                             | Coding Plan API key                                                                                       |
-| `GLM_BASE_URL`              | `https://api.z.ai/api/anthropic` | Coding Plan Anthropic Messages endpoint. Mainland-China accounts: `https://open.bigmodel.cn/api/anthropic` |
-| `GLM_MODEL`                 | `glm-5.3`                        | Coding Plan models: `glm-5.3`, `glm-5.3-flash`                                                            |
-| `GLM_MAX_TOKENS`            | `32768`                          | Per-turn output cap (this project's value, not an official limit)                                         |
-| `GLM_AGENT_MAX_ITERS`       | `30`                             | Max tool-loop turns                                                                                       |
-| `GLM_AGENT_BASH_TIMEOUT_MS` | `120000`                         | Per-command bash timeout                                                                                  |
-| `GLM_MAX_CONCURRENT`        | `1`                              | In-flight requests to GLM                                                                                 |
-| `GLM_STALL_TIMEOUT_MS`      | `120000`                         | Idle time on the stream before a retry                                                                    |
+GLM has five actions inside that folder: read a file, write a file, edit a file, list a directory, and run a shell command.
 
-Z.ai warns that choosing the wrong endpoint prevents Coding Plan quota from being used ([docs](https://docs.z.ai/devpack/tool/others.md), accessed 2026-10-07).
+## 📋 Settings
 
-## 🔒 Safety Boundaries
+Pass settings with `-e NAME=value` when you run `claude mcp add`.
 
-- `read_file`, `write_file`, `edit_file`, `list_dir` reject any path outside `workdir`, after resolving symlinks.
-- `run_bash` starts in `workdir`, but the command itself is **not** sandboxed. GLM can run any shell command. Use it only on directories you are fine letting it modify.
-- Requests go to Z.ai servers. Do not delegate secret or regulated code.
-- The Z.ai FAQ states the Coding Plan is limited to officially supported tools and products ([FAQ](https://docs.z.ai/devpack/faq.md), accessed 2026-10-07). Whether calling it from your own MCP server is allowed is for you to confirm.
+| Setting        | Default                          | Meaning                                                                                                    |
+| :------------- | :------------------------------- | :--------------------------------------------------------------------------------------------------------- |
+| `GLM_API_KEY`  | none                             | Your Coding Plan API key. Required.                                                                        |
+| `GLM_BASE_URL` | `https://api.z.ai/api/anthropic` | Coding Plan address. Mainland-China accounts: `https://open.bigmodel.cn/api/anthropic`                     |
+| `GLM_MODEL`    | `glm-5.3`                        | Model to use. The Coding Plan supports `glm-5.3` and `glm-5.3-flash`.                                      |
+
+Z.ai warns that using the wrong address means your Coding Plan quota is not used ([docs](https://docs.z.ai/devpack/tool/others.md), accessed 2026-10-07).
+
+<details>
+<summary>Advanced settings</summary>
+
+| Setting                     | Default  | Meaning                                                             |
+| :-------------------------- | :------- | :------------------------------------------------------------------ |
+| `GLM_AGENT_MAX_ITERS`       | `30`     | Maximum rounds per task                                             |
+| `GLM_AGENT_BASH_TIMEOUT_MS` | `120000` | Time limit for one shell command                                    |
+| `GLM_MAX_TOKENS`            | `32768`  | Output limit per round (this project's choice, not an official cap) |
+| `GLM_MAX_CONCURRENT`        | `1`      | Requests sent to GLM at the same time                               |
+| `GLM_STALL_TIMEOUT_MS`      | `120000` | How long to wait in silence before retrying                         |
+
+</details>
+
+## 🔒 Safety
+
+- File actions only work inside the folder you pass as `workdir`. Paths outside it are refused, including paths that reach outside through symbolic links.
+- Shell commands start in `workdir` but are **not** restricted. GLM can run any command, so use this on folders you are fine letting it change.
+- Your code is sent to Z.ai's servers. Keep secrets and regulated code on your own machine.
+- Z.ai's FAQ says the Coding Plan is limited to officially supported tools and products ([FAQ](https://docs.z.ai/devpack/faq.md), accessed 2026-10-07). Whether a self-made plug-in like this one is allowed is for you to confirm.
+
+## 📢 Status
+
+Tested end to end against a fake GLM server, and once against the mainland-China Coding Plan address (open.bigmodel.cn) with `glm-5.3`. The international z.ai address has not been tested.
 
 ## 🙏 Acknowledgements
 

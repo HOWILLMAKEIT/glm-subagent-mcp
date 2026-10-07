@@ -6,78 +6,43 @@
 
 <div align="center">
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Node 18+](https://img.shields.io/badge/Node-18%2B-339933.svg?logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![MCP](https://img.shields.io/badge/MCP-plugin-6366f1.svg)](https://modelcontextprotocol.io/)
+[![Tools](https://img.shields.io/badge/Tools-1-0ea5e9.svg)](#-工作原理)
+[![GLM](https://img.shields.io/badge/GLM-Coding%20Plan-111827.svg)](https://docs.z.ai/devpack/overview)
+
+**让 Claude Code 把任务交给 GLM 去做。活由 GLM 干，花的是你 GLM 套餐里的 token，不是 Claude 的。**
+
+[English](README.md) | **简体中文**
+
+[它做什么](#-它做什么) | [快速开始](#-快速开始) | [工作原理](#-工作原理) | [配置](#-配置) | [安全](#-安全) | [致谢](#-致谢)
+
+</div>
+
 ---
 
-glm-subagent-mcp 让你在普通的 prompt 里直接告诉 Claude Code：把这个任务交给 GLM。它是一个只有 `glm_agent(task, workdir)` 一个工具的 MCP server。GLM 在 `workdir` 内用自己的 read / write / edit / list / bash 工具循环干活，最后返回总结、改动文件和 token 用量。
+## 💡 它做什么
 
-省 token 的原因在于活在哪里干。读文件、写代码、跑命令、失败重试都发生在 GLM 一侧，消耗的是你的 GLM Coding Plan 额度。Claude 的上下文里只会收到一段简短总结，所以一个很长的任务对 Claude 来说只占几百 token，而不是整段工作记录。
+Claude Code 读的每个文件、跑的每条命令都会消耗 Claude 的 token。这个项目给 Claude Code 加了一个工具 `glm_agent`。你让 Claude 用它时，Claude 会把任务交给 GLM 模型。GLM 自己读文件、改文件、跑命令，最后回报一小段总结。Claude 只看得到这段总结。
 
-## 👀 概览
-
-### ✨ 亮点
-
-<table>
-<tr>
-<td align="center" width="25%">💬<br/><b>Prompt 触发</b><br/><sub>说一句“用 glm_agent”，Claude 就会委派任务</sub></td>
-<td align="center" width="25%">💸<br/><b>活留在 GLM 一侧</b><br/><sub>读文件、改文件和命令输出都不进入 Claude 的上下文</sub></td>
-<td align="center" width="25%">🔌<br/><b>Coding Plan 端点</b><br/><sub>Anthropic Messages API，默认 <code>glm-5.3</code></sub></td>
-<td align="center" width="25%">🔒<br/><b>路径沙箱</b><br/><sub>文件工具限制在 <code>workdir</code> 内，含符号链接</sub></td>
-</tr>
-</table>
-
-### 📢 动态
-
-- **2026-10-07** 🎉 初始版本：单工具 server，附模拟端点的端到端测试。已用国内 Coding Plan 端点（open.bigmodel.cn）和 glm-5.3 实测通过一次；国际站 z.ai 端点未测试。
-
-## 🛠️ 工作原理
-
-```mermaid
-flowchart TD
-    U["你：'用 glm_agent 做 ...'"] --> A["Claude Code<br/>读取 glm_agent 描述"]
-    A -->|"glm_agent(task, workdir)"| B["glm-subagent-mcp<br/>(stdio MCP server)"]
-    B -->|"POST /v1/messages (SSE)"| C["GLM Coding Plan 端点"]
-    C -->|"tool_use"| D["本地工具循环<br/>read / write / edit / list / bash"]
-    D -->|"tool_result"| C
-    D -->|"workdir 内的文件"| E[("你的仓库")]
-    C -->|"最终文本"| B
-    B -->|"总结 + 改动文件 + token"| A
-
-    style A fill:#e0f2fe,stroke:#0284c7,stroke-width:2px
-    style B fill:#fef3c7,stroke:#f59e0b,stroke-width:2px
-    style C fill:#f5f3ff,stroke:#8b5cf6,stroke-width:2px
-```
-
-1. 你让 Claude 用 `glm_agent` 做某个任务，Claude 带着完整的任务描述和绝对路径 `workdir` 调用它。
-2. server 把任务发给 GLM。每次返回 `tool_use`，就在本机执行并把结果回传，直到 GLM 停止或达到轮数上限（默认 30）。
-3. Claude 收到总结、改动文件列表和输入/输出 token 数。
-
-### 🧰 工具参数
-
-| 参数        | 必填 | 含义                                      |
-| :---------- | :--: | :---------------------------------------- |
-| `task`    |  ✅  | 自包含的任务。GLM 看不到 Claude 的对话。  |
-| `workdir` |  ✅  | GLM 工作目录的绝对路径。                  |
-| `context` |      | 额外背景或约束。                          |
-| `model`   |      | `glm-5.3`（默认）或 `glm-5.3-flash`。 |
-
-GLM 自己的工具：`read_file`、`write_file`、`edit_file`、`list_dir`、`run_bash`。
-
-## 📁 项目结构
+比如你输入：
 
 ```text
-glm-subagent-mcp/
-├── src/
-│   ├── index.js        # MCP server，注册 glm_agent
-│   ├── glmAgent.js     # 工具循环 + workdir 沙箱
-│   └── glmClient.js    # 流式客户端、重试、空闲超时、取消
-├── test/run.mjs        # 对模拟 SSE 服务器的端到端测试
-├── package.json
-└── LICENSE
+用 glm_agent 给本仓库的 utils.py 补单元测试，完成后总结改了什么。
 ```
+
+Claude 把任务和项目目录交给 GLM。GLM 做完后，Claude 收到几行内容：改了什么、涉及哪些文件、用了多少 token。中间的读文件、写代码、跑测试，都记在你的 GLM Coding Plan 上。
+
+适合交给 GLM 的任务说得清、能独立完成：搭脚手架、写测试、翻译、写文档、小范围重构。依赖整段对话的任务更适合留给 Claude，因为 GLM 看不到你们的对话。
+
+这个工具以 MCP server 的形式提供，MCP 是给 Claude Code 增加工具的插件格式。
 
 ## 🚀 快速开始
 
-### 1. 安装
+需要 Claude Code、Node.js 18 或更高版本，以及一个 GLM Coding Plan 的 API key。
+
+**1. 下载并安装**
 
 ```bash
 git clone https://github.com/HOWILLMAKEIT/glm-subagent-mcp.git
@@ -85,57 +50,87 @@ cd glm-subagent-mcp
 npm install
 ```
 
-### 2. 注册到 Claude Code
+**2. 添加到 Claude Code**
 
 ```bash
-claude mcp add glm -s user -e GLM_API_KEY=你的CodingPlan密钥 -- node /绝对路径/glm-subagent-mcp/src/index.js
+claude mcp add glm -s user -e GLM_API_KEY=你的KEY -- node /绝对路径/glm-subagent-mcp/src/index.js
 ```
 
-### 3. 在 prompt 里使用
+如果你的 Coding Plan 账号在国内站（bigmodel.cn），要多加一项设置。默认地址是国际站：
 
-重启 Claude Code，然后在请求里点名这个工具：
-
-```text
-用 glm_agent 给本仓库的 utils.py 补单元测试，完成后总结改了什么。
+```bash
+claude mcp add glm -s user -e GLM_API_KEY=你的KEY -e GLM_BASE_URL=https://open.bigmodel.cn/api/anthropic -- node /绝对路径/glm-subagent-mcp/src/index.js
 ```
+
+**3. 重启 Claude Code，点名让它用**
 
 ```text
 把 README 的翻译交给 GLM，用 glm_agent，工作目录是 /path/to/project。
 ```
 
-适合交给 GLM 的任务是说明清楚、自包含的那类：搭脚手架、写测试、翻译、写文档、局部重构。需要整段对话作为上下文的任务，留给 Claude 自己做。
+不想用真 key 检查安装是否正常，可以运行 `npm test`。它会在本机用一个假的 GLM 服务器把整个流程跑一遍。
 
-### 4. 测试（不需要 key）
+## 🔍 工作原理
 
-```bash
-npm test
+```mermaid
+flowchart LR
+    A["你"] -->|"用 glm_agent 做 ..."| B["Claude Code"]
+    B -->|"任务 + 项目目录"| C["glm_agent"]
+    C <-->|"下一步做什么？/ 结果在这"| D["GLM 模型"]
+    C <-->|"读、改文件，跑命令"| E[("你的项目目录")]
+    C -->|"简短总结"| B
 ```
 
-测试会启动一个模拟 Anthropic 风格 SSE 的服务器，检查完整流程：写文件、路径越界、符号链接越界、bash。
+1. Claude 带着任务和项目目录的绝对路径调用 `glm_agent`。
+2. `glm_agent` 问 GLM 下一步做什么。GLM 回答一个动作，比如“读这个文件”或“跑这条命令”。`glm_agent` 在你的目录里执行，再把结果告诉 GLM。这样来回，直到 GLM 说完成，或者达到 30 轮。
+3. Claude 收到 GLM 的总结、改动的文件列表和 token 用量。
 
-## ⚙️ 配置
+### 工具参数
 
-注册时用 `-e` 传入。
+| 参数      | 必填 | 含义                                                    |
+| :-------- | :--: | :------------------------------------------------------ |
+| `task`    |  ✅  | 要 GLM 做的事。要写完整，因为 GLM 看不到你们的对话。    |
+| `workdir` |  ✅  | GLM 工作目录的绝对路径。                                |
+| `context` |      | 额外的背景或约束。                                      |
+| `model`   |      | `glm-5.3`（默认）或 `glm-5.3-flash`。                   |
 
-| 变量                          | 默认值                             | 含义                                                                                         |
-| :---------------------------- | :--------------------------------- | :------------------------------------------------------------------------------------------- |
-| `GLM_API_KEY`               | 无                                 | Coding Plan 的 API key                                                                       |
-| `GLM_BASE_URL`              | `https://api.z.ai/api/anthropic` | Coding Plan 的 Anthropic Messages 端点。国内账号用`https://open.bigmodel.cn/api/anthropic` |
-| `GLM_MODEL`                 | `glm-5.3`                        | Coding Plan 支持`glm-5.3`、`glm-5.3-flash`                                               |
-| `GLM_MAX_TOKENS`            | `32768`                          | 每轮输出上限（本项目取值，不是官方上限）                                                     |
-| `GLM_AGENT_MAX_ITERS`       | `30`                             | 工具循环最大轮数                                                                             |
-| `GLM_AGENT_BASH_TIMEOUT_MS` | `120000`                         | 单条 bash 超时                                                                               |
-| `GLM_MAX_CONCURRENT`        | `1`                              | 同时发往 GLM 的请求数                                                                        |
-| `GLM_STALL_TIMEOUT_MS`      | `120000`                         | 流式响应空闲多久后重试                                                                       |
+GLM 在这个目录里有五个动作：读文件、写文件、改文件、列目录、跑 shell 命令。
 
-Z.ai 提示：端点选错会导致用不上 Coding Plan 的额度（[文档](https://docs.z.ai/devpack/tool/others.md)，访问于 2026-10-07）。
+## 📋 配置
 
-## 🔒 安全边界
+运行 `claude mcp add` 时，用 `-e 名称=值` 传入。
 
-- `read_file`、`write_file`、`edit_file`、`list_dir` 会拒绝 `workdir` 之外的路径，符号链接解析后同样检查。
-- `run_bash` 从 `workdir` 启动，但命令本身**不受**沙箱限制，GLM 可以执行任何 shell 命令。只对可以放心让它修改的目录使用。
-- 请求发往 Z.ai 服务器，机密或受监管的代码不要委派。
-- Z.ai 的 FAQ 写明 Coding Plan 仅限在官方支持的工具和产品内使用（[FAQ](https://docs.z.ai/devpack/faq.md)，访问于 2026-10-07）。自建 MCP server 调用是否在允许范围内，需要你自行确认。
+| 配置           | 默认值                           | 含义                                                                      |
+| :------------- | :------------------------------- | :------------------------------------------------------------------------ |
+| `GLM_API_KEY`  | 无                               | Coding Plan 的 API key，必填。                                            |
+| `GLM_BASE_URL` | `https://api.z.ai/api/anthropic` | Coding Plan 地址。国内账号用 `https://open.bigmodel.cn/api/anthropic`     |
+| `GLM_MODEL`    | `glm-5.3`                        | 使用的模型。Coding Plan 支持 `glm-5.3` 和 `glm-5.3-flash`。               |
+
+Z.ai 提示：地址用错，Coding Plan 的额度就用不上（[文档](https://docs.z.ai/devpack/tool/others.md)，访问于 2026-10-07）。
+
+<details>
+<summary>高级配置</summary>
+
+| 配置                        | 默认值   | 含义                                           |
+| :-------------------------- | :------- | :--------------------------------------------- |
+| `GLM_AGENT_MAX_ITERS`       | `30`     | 每个任务最多几轮                               |
+| `GLM_AGENT_BASH_TIMEOUT_MS` | `120000` | 单条 shell 命令的时间上限                      |
+| `GLM_MAX_TOKENS`            | `32768`  | 每轮输出上限（本项目取值，不是官方上限）       |
+| `GLM_MAX_CONCURRENT`        | `1`      | 同时发给 GLM 的请求数                          |
+| `GLM_STALL_TIMEOUT_MS`      | `120000` | 连续多久没有响应就重试                         |
+
+</details>
+
+## 🔒 安全
+
+- 文件操作只在你传入的 `workdir` 内生效。目录之外的路径会被拒绝，通过符号链接绕出去的也一样。
+- shell 命令从 `workdir` 启动，但**不受**限制。GLM 可以执行任何命令，所以只对你放心让它改动的目录使用。
+- 你的代码会发到 Z.ai 的服务器。机密或受监管的代码留在本机。
+- Z.ai 的 FAQ 写明 Coding Plan 仅限在官方支持的工具和产品内使用（[FAQ](https://docs.z.ai/devpack/faq.md)，访问于 2026-10-07）。像这样自己写的插件是否在允许范围内，需要你自行确认。
+
+## 📢 状态
+
+已用假的 GLM 服务器完整测试过，也用国内 Coding Plan 地址（open.bigmodel.cn）和 `glm-5.3` 实测通过一次。国际站 z.ai 地址没有测试过。
 
 ## 🙏 致谢
 
